@@ -194,6 +194,12 @@ def find_duplicates(assets: list, stacked_ids: list) -> tuple:
       - keep_list: assets to keep (one per checksum group)
       - trash_list: duplicate assets to trash
     """
+    # Debug: log available fields from first asset to verify checksum presence
+    if assets:
+        sample = assets[0]
+        logger.info(f'   Sample asset keys: {list(sample.keys())}')
+        logger.info(f'   Sample checksum: {sample.get("checksum")}')
+
     checksum_groups = defaultdict(list)
     for asset in assets:
         checksum = asset.get("checksum")
