@@ -21,7 +21,7 @@ from immich_auto_stack import main
 @patch("immich_auto_stack.stratifyStack")
 @patch("immich_auto_stack.stackBy")
 @patch("immich_auto_stack.Immich")
-def test_main_applies_dry_run_env_var_to_skip_modifyAssets(
+def test_main_applies_dry_run_env_var_to_skip_createStack(
     mock_immich_class,
     mock_stackBy,
     mock_stratifyStack,
@@ -55,4 +55,4 @@ def test_main_applies_dry_run_env_var_to_skip_modifyAssets(
         main()
 
     # Assert
-    assert mock_immich_class().modifyAssets.call_count == expected_call_count
+    assert mock_immich_class().createStack.call_count == expected_call_count
