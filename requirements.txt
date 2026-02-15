@@ -1,2 +1,6 @@
-requests
+requests~=2.32.3
 str2bool==1.1
+
+urllib3~=2.3.0
+dotenv~=0.9.9
+python-dotenv~=1.1.0
