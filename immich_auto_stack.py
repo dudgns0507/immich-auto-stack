@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import logging, sys
+from collections import defaultdict
 from itertools import groupby
 import json
 import os
@@ -173,6 +174,54 @@ class Immich():
         else:
             logger.error(f"  🔴 Error! {response.status_code} {response.text}")
 
+    def deleteAssets(self, asset_ids: list) -> None:
+        response = self.session.delete(
+            f"{self.api_url}/assets",
+            headers=self.headers,
+            json={"ids": asset_ids, "force": False}
+        )
+
+        if response.ok:
+            logger.info(f"  🟢 Trashed {len(asset_ids)} duplicate(s)")
+        else:
+            logger.error(f"  🔴 Error! {response.status_code} {response.text}")
+
+
+def find_duplicates(assets: list, stacked_ids: list) -> tuple:
+    """
+    Find exact duplicate assets by checksum (SHA1 hash).
+    Returns (keep_list, trash_list) where:
+      - keep_list: assets to keep (one per checksum group)
+      - trash_list: duplicate assets to trash
+    """
+    checksum_groups = defaultdict(list)
+    for asset in assets:
+        checksum = asset.get("checksum")
+        if checksum:
+            checksum_groups[checksum].append(asset)
+
+    # Only keep groups with 2+ assets (actual duplicates)
+    duplicate_groups = {k: v for k, v in checksum_groups.items() if len(v) > 1}
+
+    trash_list = []
+    for checksum, group in duplicate_groups.items():
+        # Sort: prefer stacked assets first, then oldest fileCreatedAt
+        group.sort(key=lambda x: (
+            0 if x["id"] in stacked_ids else 1,
+            x.get("fileCreatedAt", "")
+        ))
+        keep = group[0]
+        duplicates = group[1:]
+
+        logger.info(f'🔍 Duplicate checksum: {checksum}')
+        logger.info(f'   Keep:  {keep["originalFileName"]} ID: {keep["id"]}')
+        for dup in duplicates:
+            logger.info(f'   Trash: {dup["originalFileName"]} ID: {dup["id"]}')
+
+        trash_list.extend(duplicates)
+
+    return duplicate_groups, trash_list
+
 
 def stackBy(data: list, criteria) -> list:
     # Optional: remove incompatible file names
@@ -217,6 +266,8 @@ def main():
 
     dry_run = str2bool(os.environ.get("DRY_RUN", False))
 
+    delete_duplicates = str2bool(os.environ.get("DELETE_DUPLICATES", False))
+
     if not api_key:
         logger.warning("API key is required")
         return
@@ -230,6 +281,22 @@ def main():
 
     exist_stacks = immich.fetchStacks()
     assets = immich.fetchAssets()
+
+    if delete_duplicates:
+        logger.info('============== DUPLICATE DETECTION ==============')
+        duplicate_groups, trash_list = find_duplicates(assets, exist_stacks)
+        logger.info(f'   Duplicate groups: {len(duplicate_groups)}')
+        logger.info(f'   Assets to trash:  {len(trash_list)}')
+
+        if len(trash_list) > 0:
+            if not dry_run:
+                trash_ids = [asset["id"] for asset in trash_list]
+                immich.deleteAssets(trash_ids)
+
+            # Remove trashed assets from the list before stacking
+            trash_id_set = {asset["id"] for asset in trash_list}
+            assets = [a for a in assets if a["id"] not in trash_id_set]
+            logger.info(f'   Remaining assets: {len(assets)}')
 
     temp_stacks = stackBy(assets, apply_criteria)
     stacks = []
