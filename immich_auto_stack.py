@@ -111,18 +111,18 @@ class Immich():
         self.assets = list()
         self.stacks = list()
 
+        self.session = Session()
+        retry = Retry(connect=3, backoff_factor=0.5)
+        adapter = HTTPAdapter(max_retries=retry)
+        self.session.mount('http://', adapter)
+        self.session.mount('https://', adapter)
+
     def fetchStacks(self):
         stack_assets_total = list()
 
         logger.info(f'⬇️  Fetching stacks: ')
 
-        session = Session()
-        retry = Retry(connect=3, backoff_factor=0.5)
-        adapter = HTTPAdapter(max_retries=retry)
-        session.mount('http://', adapter)
-        session.mount('https://', adapter)
-
-        response = session.get(f"{self.api_url}/stacks", headers=self.headers)
+        response = self.session.get(f"{self.api_url}/stacks", headers=self.headers)
 
         if not response.ok:
             logger.error('   Error:', response.status_code, response.text)
@@ -148,14 +148,8 @@ class Immich():
         logger.info(f'⬇️  Fetching assets: ')
         logger.info(f'   Page size: {size}')
 
-        session = Session()
-        retry = Retry(connect=3, backoff_factor=0.5)
-        adapter = HTTPAdapter(max_retries=retry)
-        session.mount('http://', adapter)
-        session.mount('https://', adapter)
-
         while payload["page"] is not None:
-            response = session.post(f"{self.api_url}/search/metadata", headers=self.headers, json=payload)
+            response = self.session.post(f"{self.api_url}/search/metadata", headers=self.headers, json=payload)
 
             if not response.ok:
                 logger.error('   Error:', response.status_code, response.text)
@@ -172,27 +166,7 @@ class Immich():
         return self.assets
 
     def createStack(self, payload: dict) -> None:
-        session = Session()
-        retry = Retry(connect=3, backoff_factor=0.5)
-        adapter = HTTPAdapter(max_retries=retry)
-        session.mount('http://', adapter)
-        session.mount('https://', adapter)
-
-        response = session.post(f"{self.api_url}/stacks", headers=self.headers, json=payload)
-
-        if response.ok:
-            logger.info("  🟢 Success!")
-        else:
-            logger.error(f"  🔴 Error! {response.status_code} {response.text}")
-
-    def modifyAssets(self, payload: dict) -> None:
-        session = Session()
-        retry = Retry(connect=3, backoff_factor=0.5)
-        adapter = HTTPAdapter(max_retries=retry)
-        session.mount('http://', adapter)
-        session.mount('https://', adapter)
-
-        response = session.put(f"{self.api_url}/assets", headers=self.headers, json=payload)
+        response = self.session.post(f"{self.api_url}/stacks", headers=self.headers, json=payload)
 
         if response.ok:
             logger.info("  🟢 Success!")
@@ -244,7 +218,7 @@ def main():
     dry_run = str2bool(os.environ.get("DRY_RUN", False))
 
     if not api_key:
-        logger.warn("API key is required")
+        logger.warning("API key is required")
         return
 
     logger.info('============== INITIALIZING ==============')
@@ -263,13 +237,14 @@ def main():
     for i, v in enumerate(temp_stacks):
         key, stack = v
         stack = stratifyStack(stack)
-        skip_previous = False
-        for item in stack:
-            if item["id"] in exist_stacks:
-                skip_previous = True
-                break
+        is_already_stacked = False
+        if skip_previous:
+            for item in stack:
+                if item["id"] in exist_stacks:
+                    is_already_stacked = True
+                    break
 
-        if not skip_previous:
+        if not is_already_stacked:
             stacks.append((key, stack))
 
     for i, v in enumerate(stacks):
@@ -288,7 +263,7 @@ def main():
 
         if len(children_id) > 0:
             payload = {
-                "assetIds": [parent_id, child["id"]],
+                "assetIds": [parent_id] + children_id,
             }
 
             if not dry_run:
